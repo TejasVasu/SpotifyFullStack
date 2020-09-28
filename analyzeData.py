@@ -97,11 +97,11 @@ def analyzeFile(inFile,currentDate):
 
 
 if __name__ == "__main__":
-    # print("Running Data Analyzer")
-    # print("Fetching User API Credentials")
+    print("Running Data Analyzer")
+    print("Fetching User API Credentials")
     user = getUserCreds('TeJas','loginCreds.json')
 
-    # print("Analyzing File..")
+    print("Analyzing File..")
     curDate = date.today().strftime("%Y-%m-%d") #Passing in current date
     analyzeFile(user['outFile'],curDate)
     outputToFile('finalMetrics.json')

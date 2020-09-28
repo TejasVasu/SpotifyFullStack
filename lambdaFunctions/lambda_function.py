@@ -1,6 +1,9 @@
-import time, requests, json, datetime, requests_cache
+import time, json, datetime
+import requests
+import requests_cache
 from datetime import timezone
 from datetime import timedelta
+import boto3, decimal
 
 # define headers and URL
 url = 'http://ws.audioscrobbler.com/2.0/'
@@ -12,7 +15,7 @@ outData = []
 dictCache = {}
 dictCounter = 0
 
-# requests_cache.install_cache('requests_cache') #creates a local cache in directory
+# requests_cache.install_cache('/tmp/requests_cache') #creates a local cache in directory
 
 def getUserCreds(user,inFile):
     inData = json.load(open(inFile))
@@ -41,14 +44,6 @@ def getRecentlyPlayed(payload, API_KEY, username,inFile,pgNum):
     response = requests.get(url, headers=headers, params=payload)
     with open(inFile,'w') as outfile:
         json.dump(response.json(),outfile,indent=4)
-
-def getGenreCache(payload,API_KEY):
-    global dictCache
-    payload['method'] = 'artist.getTopTags'
-    payload['api_key'] = API_KEY
-    payload['format'] = 'json'
-    response = requests.get(url, headers=headers, params=payload)
-
 
 def getTopGenreTags(payload,API_KEY):
     global counterCache
@@ -124,11 +119,12 @@ def cleanseAndWrite(inFile, outputFile,API_KEY):
     global outData
     global counterDup
     trName = inData['recenttracks']['track'][1]['name']
+    print(trName)
     arName = inData['recenttracks']['track'][1]['artist']['#text']
     dur = lastfm_get_track_duration({
         'artist': arName,
         'track': trName
-    },user['API_KEY'])
+    },API_KEY)
     prevTime = "hi" 
     # Ignore, first record as it could have currently playing, which doesn't have time
     prevDt = 0
@@ -138,9 +134,7 @@ def cleanseAndWrite(inFile, outputFile,API_KEY):
         each['Artist'] = (d['artist']['#text']) #get Artist name
         each['Album'] = (d['album']['#text']) #get Album Name
         dt,time = dateStrip(d['date']['uts'])
-        each['ArtistTopTags'] = getTopGenreTags({'artist': d['artist']['#text']},user['API_KEY'])
-        # each['ArtistTopTags'] = getTopGenreTags(d['artist']['#text'],user['API_KEY'])
-
+        each['ArtistTopTags'] = getTopGenreTags({'artist': d['artist']['#text']},API_KEY)
         each['Date'] = dt # get date
         each['Time'] = time #get time
         each['TimeOfDay'] = getTimeOfDay(d['date']['uts'])
@@ -155,7 +149,7 @@ def cleanseAndWrite(inFile, outputFile,API_KEY):
             if(duration > 500):
                 duration = lastfm_get_track_duration({
                     'artist': d['artist']['#text'],
-                    'track': d['name']},user['API_KEY'])
+                    'track': d['name']},API_KEY)
             if duration == 0:   duration = 300
             prevDt = d['date']['uts']
             each['durationSec'] = duration
@@ -177,8 +171,27 @@ def getTodayTimestampRnge():
     finEnd = (end - datetime.datetime(1970,1,1)).total_seconds()
     print("Start Dates: " + str(start)+ "  -- End Date: " +str(end))
     return int(finStart), int(finEnd) #has to be in INT for api call
+    
+def populateTbl(dynamodb,dbTblName):
+    global outData
+    table = dynamodb.Table(dbTblName)
+    print("Table Status: " + table.table_status)
+    # with open(fileIn) as json_file:
+    #     songs = json.load(json_file, parse_float=Decimal)
+    # Batch write all the songs, this speeds up process
+    with table.batch_writer() as batch:
+        for song in outData:
+            SongName = song['SongName']
+            Artist = song['Artist']
+            Album = song['Album']
+            ArtistTopTags = song['ArtistTopTags']
+            Date = song['Date']
+            Time = song['Time']
+            TimeOfDay = song['TimeOfDay']
+            durationSec = int(song['durationSec'])
+            batch.put_item(Item=song)
 
-if __name__ == "__main__":
+def lambda_handler(event, context):
     # Which user credentials to use
     print("Fetching User API Credentials")
     user = getUserCreds('TeJas','loginCreds.json')
@@ -194,21 +207,14 @@ if __name__ == "__main__":
             getRecentlyPlayed({'method': 'user.getrecenttracks','from': start,'to':end
             },user['API_KEY'],user['username'],user['inFile'],x)
             cleanseAndWrite(user['inFile'],user['outFile'],user['API_KEY'])
-        outputToFile(user['outFile'])
+        # outputToFile(user['outFile'])
         print("No.of calls to artist tags cache: " + str(counterCache)) 
-        print("No.of calls to artist tags dictionary cache: " + str(dictCounter)) 
         print("Duplicates Handeled: " + str(counterDup))
     else:
         jprint(numPages)
-
-
     
-
-    
-
-
-    
+    dbTblName = 'spotifyTbl'
+    dynamodb = boto3.resource('dynamodb')
+    populateTbl(dynamodb,dbTblName)
 
 
-
-    
