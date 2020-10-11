@@ -1,5 +1,5 @@
 # SpotifyFullStack
-Full Stack project sourcing data from Spotify
+Full Stack project sourcing data from Spotify through last.fm, hosted on AWS
 
 ## Installations Required
 *	Install Homebrew
